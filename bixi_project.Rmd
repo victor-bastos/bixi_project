@@ -1,0 +1,9 @@
+---
+title: "bixi_project"
+output: pdf_document
+---
+
+```{r}
+summary(cars)
+```
+
