@@ -115,6 +115,32 @@ plot_grid(p_prec, p_logprec, nrow = 1, labels = c("C", "D"))
 
 ```
 
+```{r eda_prec_en, message=FALSE, warning=FALSE}
+
+#install.packages("corrplot")
+library(corrplot)
+
+# Keep only numeric columns with non-zero variance
+bixi_num <- bixi[sapply(bixi, is.numeric)]
+bixi_num <- bixi_num[, sapply(bixi_num, function(x) sd(x, na.rm = TRUE) > 0)]
+
+# Correlation matrix
+corr_matrix <- cor(bixi_num, use = "pairwise.complete.obs")
+
+# Plot
+corrplot(
+  corr_matrix,
+  method = "color",                         # colored heatmap
+  type = "full",                            # show full matrix
+  addCoef.col = "black",                    # add correlation values
+  number.cex = 0.6,                         # size of numbers
+  tl.col = "black",                         # text color
+  tl.srt = 45,                              # rotate x labels
+  col = colorRampPalette(c("#f7fbff", "#6baed6", "#08306b"))(200)
+)
+
+```
+
 # Business questions
 
 ## Q1 — Do weekend BIXI trips tend to be longer?
