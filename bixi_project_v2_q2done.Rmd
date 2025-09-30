@@ -1,0 +1,598 @@
+---
+title: "bixi_project"
+output: pdf_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r, include = false}
+#library(tidyverse)
+library(broom)
+#library(car)
+library(ggplot2)
+library(cowplot)
+library(dplyr)
+library(gridExtra)
+```
+
+# Exploratory Data Analysis
+
+```{r}
+bixi <- read.csv("bixi6_part1.csv")
+```
+
+```{r,fig.width=10, fig.height=4, message=FALSE, warning=FALSE,}
+
+# Ensure variables exist
+stopifnot("dur" %in% names(bixi))
+bixi$logdur <- log(bixi$dur)
+
+# Reusable minimalist theme
+theme_clean <- theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_line(size = 0.2),
+    plot.title = element_text(face = "bold", size = 13),
+    plot.subtitle = element_text(color = "grey35"),
+    axis.title = element_text(face = "bold"),
+    plot.caption = element_text(color = "grey40", size = 9, margin = margin(t = 6))
+  )
+
+# Helper to add median/mean lines with labels
+add_center_lines <- function(p, xvar, data) {
+  med <- median(data[[xvar]], na.rm = TRUE)
+  mn  <- mean(data[[xvar]], na.rm = TRUE)
+  p +
+    geom_vline(xintercept = med, linetype = 2, linewidth = 0.6) +
+    geom_vline(xintercept = mn,  linetype = 1, linewidth = 0.6, alpha = 0.8) +
+    annotate("text", x = med, y = Inf, vjust = 1.5, label = "Median", size = 3.2) +
+    annotate("text", x = mn,  y = Inf, vjust = 3.0, label = "Mean",   size = 3.2)
+}
+
+p_dur <- ggplot(bixi, aes(x = dur)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 50, alpha = 0.9) +
+  geom_density(linewidth = 0.9) +
+  geom_rug(alpha = 0.15, length = unit(2.5, "pt")) +
+  labs(
+    title = "Trip duration (minutes)",
+    subtitle = "Histogram with density overlay;",
+    x = "Duration (minutes)", y = "Density",
+    caption = "Visual check for right skew and potential variance stabilization via log transform."
+  ) +
+  theme_clean
+p_dur <- add_center_lines(p_dur, "dur", bixi)
+
+p_logdur <- ggplot(bixi[is.finite(bixi$logdur), ], aes(x = logdur)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 50, alpha = 0.9) +
+  geom_density(linewidth = 0.9) +
+  geom_rug(alpha = 0.15, length = unit(2.5, "pt")) +
+  labs(
+    title = "Log trip duration",
+    subtitle = "Histogram with density overlay; ",
+    x = "log(Duration)", y = "Density",
+    caption = "Log transform typically reduces right tail and improves normality for linear modeling."
+  ) +
+  theme_clean
+p_logdur <- add_center_lines(p_logdur, "logdur", bixi)
+
+plot_grid(p_dur, p_logdur, nrow = 1, labels = c("A", "B"))
+```
+
+```{r eda_prec_en, message=FALSE, warning=FALSE, fig.width=10, fig.height=4}
+# Ensure variables and build rainy-day intensity
+stopifnot("precip" %in% names(bixi))
+bixi$Wet      <- as.integer(bixi$prec > 0)
+bixi$rain_int <- ifelse(bixi$prec > 0, log1p(bixi$prec), NA_real_)
+bixi_wet      <- subset(bixi, Wet == 1 & is.finite(rain_int))
+
+# Reuse theme and helper from above (theme_clean, add_center_lines)
+
+p_prec <- ggplot(bixi_wet, aes(x = precip)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 50, alpha = 0.9) +
+  geom_density(linewidth = 0.9) +
+  geom_rug(alpha = 0.15, length = unit(2.5, "pt")) +
+  labs(
+    title = "Precipitation on rainy days",
+    subtitle = "Histogram with density overlay; ",
+    x = "Precipitation (mm)", y = "Density",
+    caption = "Raw precipitation often shows a heavy right tail on rainy days."
+  ) +
+  theme_clean
+p_prec <- add_center_lines(p_prec, "precip", bixi_wet)
+
+p_logprec <- ggplot(bixi_wet, aes(x = rain_int)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 50, alpha = 0.9) +
+  geom_density(linewidth = 0.9) +
+  geom_rug(alpha = 0.15, length = unit(2.5, "pt")) +
+  labs(
+    title = "log1p(precipitation) on rainy days",
+    subtitle = "Histogram with density overlay;",
+    x = "log(1 + precipitation)", y = "Density",
+    caption = "The log1p transform compresses the heavy tail,."
+  ) +
+  theme_clean
+p_logprec <- add_center_lines(p_logprec, "rain_int", bixi_wet)
+
+plot_grid(p_prec, p_logprec, nrow = 1, labels = c("C", "D"))
+
+```
+
+```{r eda_prec_en, message=FALSE, warning=FALSE}
+
+#install.packages("corrplot")
+library(corrplot)
+
+# Keep only numeric columns with non-zero variance
+bixi_num <- bixi[sapply(bixi, is.numeric)]
+bixi_num <- bixi_num[, sapply(bixi_num, function(x) sd(x, na.rm = TRUE) > 0)]
+
+# Correlation matrix
+corr_matrix <- cor(bixi_num, use = "pairwise.complete.obs")
+
+# Plot
+corrplot(
+  corr_matrix,
+  method = "color",                         # colored heatmap
+  type = "full",                            # show full matrix
+  addCoef.col = "black",                    # add correlation values
+  number.cex = 0.6,                         # size of numbers
+  tl.col = "black",                         # text color
+  tl.srt = 45,                              # rotate x labels
+  col = colorRampPalette(c("#f7fbff", "#6baed6", "#08306b"))(200)
+)
+
+```
+
+# Business questions
+
+## Q1 --- Do weekend BIXI trips tend to be longer?
+
+**Design.** We model trip duration using linear regression. Because
+`dur` (minutes) is positive and typically right-skewed, we analyze
+$\log(\text{dur})$ to improve normality and stabilize residual variance.
+
+**Variables.** - `Weekend`: indicator equal to 1 for Saturday/Sunday
+(`jj ∈ {6,7}`), 0 otherwise. - Controls (for adjusted inference "even
+after adjusting"): month (`mm` as factor), borough (`arrondissement` as
+factor), temperature (centered) and light nonlinearity, rainfall split
+into "wet day" and intensity on wet days.
+
+**Models:**
+
+1\. *Crude:*
+
+$\log(\text{dur}) = \beta_0 + \beta_1\,Weekend + \varepsilon$.
+
+2\. *Adjusted:*
+
+-   $X_1$: weekend indicator (binary).
+-   $X_2$: centered temperature.
+-   $X_3$: squared centered temperature (i.e., $X_3 = X_2^2$).
+-   $X_4$: wet-day indicator (binary).
+-   $X_5$: rain intensity on wet days (e.g.,
+    $X_5=\log(1+\text{prec})\cdot X_4$).
+-   $X_6,\dots,X_{M}$: month dummies (one omitted as reference).
+-   $X_{M+1},\dots,X_{P}$: borough dummies (one omitted as reference).
+
+The model we estimate is
+
+$$
+E\!\left(Y \mid X_1,\dots,X_P\right)
+=
+\beta_0
++ \beta_1 X_1
++ \beta_2 X_2
++ \beta_3 X_3
++ \beta_4 X_4
++ \beta_5 X_5
++ \sum_{j=6}^{M} \delta_j\, D^{(month)}_j
++ \sum_{k=1}^{K} \alpha_k\, D^{(borough)}_k
+$$
+
+**Hypothesis.** $H_0:\beta_1=0$ vs $H_1:\beta_1\neq 0$. We test this
+with a *t*-test from `lm()`
+
+```{r, message=FALSE, warning=FALSE}
+# Load data
+bixi <- read.csv("bixi6_part1.csv")
+
+# Remove trips shorter than 1.5 minutes
+#bixi <- subset(bixi, dur >= 1.5)
+
+# Construct variables (base R)
+bixi$Weekend <- as.integer(bixi$jj %in% c(6,7))
+bixi$mm <- factor(bixi$mm)
+bixi$arrondissement <- factor(bixi$arrondissement)
+bixi$Wet <- as.integer(bixi$prec > 0)
+bixi$temp_c <- bixi$temp - 20
+bixi$logdur <- log(bixi$dur)
+bixi <- bixi[is.finite(bixi$logdur), ]
+
+# Models
+m_q1_crude <- lm(logdur ~ Weekend, data = bixi)
+```
+
+**Temperature (centered and quadratic).**\
+We include both a linear and a quadratic term for temperature. The
+hypothesis is that the effect of temperature on trip duration is not
+purely linear: durations may increase with warmer weather up to a
+comfortable point (\~20--22 °C) and then decrease when it becomes too
+hot. To capture this curvature, we model temperature as a centered
+linear term (Temp_c = Temp − 20) and a squared term (Temp_c²).
+
+**Rainfall (Wet and log-intensity).**\
+We decompose rainfall into two effects:\
+1. A binary indicator Wet (1 = day with any rainfall, 0 = dry day). This
+captures whether trips are systematically shorter on rainy days compared
+to dry days.\
+2. A continuous intensity effect, modeled as $\log(1 + \text{prec})$ on
+wet days. The log transformation smooths the influence of rainfall:
+small differences matter when rain is light (0--5 mm), but additional
+millimeters at higher levels have diminishing impact.
+
+```{r, message=FALSE, warning=FALSE}
+m_q1_adj <- lm(
+  logdur ~ Weekend +
+    temp_c + I(temp_c^2) +
+    Wet + log(1 + precip):Wet +
+    mm + arrondissement,
+  data = bixi
+)
+
+```
+
+```{r}
+summary(m_q1_crude)
+```
+
+```{r}
+summary(m_q1_adj)
+```
+
+We first fit a crude model with weekend indicator $X_1$.\
+Test of $H_0:\beta_1=0$ vs $H_A:\beta_1\neq 0$ gives\
+$\hat{\beta}_1=0.0738$, $p=0.0023$. Since $p < 0.01$, the effect is
+significant.\
+Weekend trips are therefore about $\exp(0.0738)-1 \approx 7.7\%$ longer
+than weekday trips in average.
+
+We then fit an adjusted model including temperature, rainfall, month and
+borough dummies.\
+The weekend effect remains significant with $\hat{\beta}_1=0.0678$,
+$p=0.0055$.\
+Again, since $p < 0.01$, we reject $H_0$. Weekend trips are about 7.0%
+longer in this model in average.
+
+**Conclusion.** Both crude and adjusted models confirm that weekend
+trips are significantly longer at the 1% level. The weekend effect is
+robust to adjustment for climate, seasonality, and borough differences.
+
+## Q2 How do weather conditions affect trip duration? Is the impact of weather conditions further accentuated on weekends?
+
+#### Test 1 --- "Climate block" (all weather terms jointly)
+
+-   **Null:** $H_0:$ all weather coefficients = 0 (temperature linear +
+    quadratic, wet-day, and rain intensity).
+-   **Alt:** at least one weather coefficient $\neq 0$.
+-   **Procedure:** compare the **reduced** model (remove all weather
+    terms) to the **full** model via `anova(reduced, full)`.
+-   **Decision:** if $p<0.01$, reject $H_0$ → weather is globally
+    significant.
+
+#### Test 2 --- "Temperature block"
+
+-   **Null:** $H_0:$ temperature linear and quadratic = 0.
+-   **Alt:** at least one temperature coefficient $\neq 0$.
+-   **Procedure:** compare the model **without temperature terms** to
+    the **full** model.
+-   **Decision:** if $p<0.01$, reject $H_0$ → temperature is significant
+    (conditional on controls and rainfall).
+
+#### Test 3 --- "Rainfall block"
+
+-   **Null:** $H_0:$ wet-day and rain-intensity coefficients = 0.
+-   **Alt:** at least one rainfall coefficient $\neq 0$.
+-   **Procedure:** compare the model **without rainfall terms** to the
+    **full** model.
+-   **Decision:** if $p<0.01$, reject $H_0$ → rainfall is significant
+    (conditional on controls and temperature).
+
+```{r}
+## Full model
+m_full <- lm(
+  logdur ~ Weekend +
+    temp_c + I(temp_c^2) +
+    Wet + log(1 + precip):Wet +
+    mm + arrondissement,
+  data = bixi
+)
+summary(m_full)
+```
+
+```{r}
+## 1) No climate
+m_no_climate <- lm(
+  logdur ~ Weekend + mm + arrondissement,
+  data = bixi
+)
+
+anova(m_no_climate, m_full)
+```
+
+```{r}
+## 2) No temperature
+m_no_temp <- lm(
+  logdur ~ Weekend +
+    Wet + log(1 + precip):Wet +
+    mm + arrondissement,
+  data = bixi
+)
+anova(m_no_temp, m_full)
+
+```
+
+```{r}
+## 3) No rain
+m_no_rain <- lm(
+  logdur ~ Weekend +
+    temp_c + I(temp_c^2) +
+    mm + arrondissement,
+  data = bixi
+)
+
+anova(m_no_rain, m_full)
+```
+
+**(i) Climate block (all weather terms jointly).**\
+- Null: $H_0:\beta_2=\beta_3=\beta_4=\beta_5=0$.\
+- Test: compare full model with climate vs. reduced model without
+climate.\
+- Result: $F=2.64$, $p=0.032$.\
+- Decision: since $p>0.01$, we fail to reject $H_0$.\
+- Conclusion: at the 1% level, there is no evidence that weather as a
+whole affects trip duration.
+
+------------------------------------------------------------------------
+
+**(ii) Temperature block (linear and quadratic).**\
+- Null: $H_0:\beta_2=\beta_3=0$.\
+- Result: $F\approx 0.0001$, $p=0.9999$.\
+- Decision: clearly $p>0.01$. Fail to reject $H_0$.\
+- Conclusion: temperature shows no effect on trip duration.
+
+------------------------------------------------------------------------
+
+**(iii) Rainfall block (wet-day indicator and rain intensity).**\
+- Null: $H_0:\beta_4=\beta_5=0$.\
+- Result: $F=5.27$, $p=0.0052$.\
+- Decision: since $p<0.01$, we reject $H_0$.\
+- Conclusion: rainfall significantly affects trip duration at the 1%
+level.
+
+------------------------------------------------------------------------
+
+**Interpretation.**
+
+Although the full weather block is not significant at
+1%(p=0.032),rainfall alone is. considering the full weather block also
+contains non- significant variables such as temperature, which dilute
+the joint test statistic. Testing rainfall separately isolates the
+effect and shows it is significant.
+
+**Continuing to the second part of the question- Is the impact of
+weather conditions further accentuated on weekends:**
+
+Let $Y=\log(\text{dur})$. Define: - $X_1$: Weekend (1=weekend,
+0=weekday). -$X_2$：tempc，-$X_3$=$\text{temp}_c^2$,- C: Wet (1 if any
+rain, 0 if dry). - $X_5 = \log(1+\text{prec})\cdot X_4$ (rain intensity
+on wet days). - $D^{(month)}_j$ (month dummies; one omitted) and
+$D^{(borough)}_k$ (borough dummies; one omitted).
+
+We estimate $$
+\begin{aligned}
+E(Y\mid X)&= \beta_0+ \beta_1 X_1+ \beta_2 X_2 + \beta_3 X_3+ \beta_4 X_4 + \beta_5 X_5 \\&\quad + \sum_j \delta_j D^{(\text{month})}_j+ \sum_k \alpha_k D^{(\text{borough})}_k \\&\quad + \underbrace{\gamma_1 X_1X_2 + \gamma_2 X_1X_3}_{\text{Weekend}\times\text{Temperature}}+ \underbrace{\gamma_3 X_1X_4 + \gamma_4 X_1X_5}_{\text{Weekend}\times\text{Rain}} \, .
+\end{aligned}
+$$
+
+**1.Temperature margin effect (weekday vs weekend)**
+
+$$
+\begin{aligned}\left.\frac{\partial E(Y\mid X)}{\partial X_2}\right|_{X_1=0}&= \beta_2 + 2\beta_3 X_2 \quad \text{(Weekday)},\\[2pt]\left.\frac{\partial E(Y\mid X)}{\partial X_2}\right|_{X_1=1}&= (\beta_2+\gamma_1) + 2(\beta_3+\gamma_2) X_2 \quad \text{(Weekend)}.\end{aligned}
+$$
+
+**2.Rainfall margin effect (weekday vs weekend).**
+
+\- **Weekdays (** $X_1=0$ ): wet jump $=\beta_4$; intensity slope
+$=\beta_5$.
+
+\- **Weekends (** $X_1=1$ ): wet jump $=\beta_4+\gamma_3$; intensity
+slope $=\beta_5+\gamma_4$.
+
+On the original scale, percent changes are approximated by
+$(e^{\hat\theta}-1)\times 100\%$.
+
+------------------------------------------------------------------------
+
+#### Hypotheses (at $\alpha=0.01$)
+
+**Global "weekend modifies temp/rain" test** $$
+H_0:\ \gamma_1=\gamma_2=0
+\quad \text{vs} \quad
+H_A:\ \text{at least one of }\{\gamma_1,\gamma_1\}\neq 0.
+\\
+H_0:\ \gamma_3=\gamma_4=0
+\quad \text{vs} \quad
+H_A:\ \text{at least one of }\{\gamma_3,\gamma_4\}\neq 0.
+$$
+
+(Use an F-test comparing the model **with** vs **without** the two
+interaction terms.)
+
+------------------------------------------------------------------------
+
+```{r}
+#full original model
+m_no_int <- lm(logdur ~ Weekend + temp_c + I(temp_c^2) +
+                   Wet + log(1+precip):Wet +
+                   factor(mm) + arrondissement, data=bixi)
+summary(m_temp_no_int)
+```
+
+```{r}
+# with Weekend×Temp
+m_temp_int <- lm(logdur ~ Weekend*(temp_c + I(temp_c^2)) +
+                   Wet + log(1+precip):Wet +
+                   factor(mm) + arrondissement, data=bixi)
+```
+
+```{r}
+
+# block F-test: H0: gamma1=gamma2=0
+anova(m_no_int, m_temp_int)  
+
+```
+
+**Weekend × Temp interactions.**\
+The F-test comparing models with and without the Weekend×rain
+interactions yields $F=0.21$ with $p=0.8044$. At the 1% significance
+level, we fail to reject $H_0$.
+
+```{r}
+## With Weekend × rain interactions
+m_rain_int <- lm(
+  logdur ~ Weekend +
+           temp_c + I(temp_c^2) +
+           Weekend*(Wet + log(1+precip):Wet) +   # <-- Weekend×Rain interactions
+           factor(mm) + arrondissement,
+  data = bixi
+)
+summary(m_rain_int)
+```
+
+```{r}
+## Global interaction block (γ3=γ4=0?) — 2 df}
+anova(m_no_int, m_rain_int)   # decision at alpha = 0.01
+```
+
+**Weekend × rain interactions.**\
+The F-test comparing models with and without the Weekend×rain
+interactions yields $F=0.2785$ with $p=0.7569$. At the 1% significance
+level, we fail to reject $H_0$.
+
+**Interpretation.**\
+There is no statistical evidence that the effect of rainfall (either the
+wet-day dummy or rainfall intensity) nor Temperature differs between
+weekends and weekdays. The negative effect of rainfall intensity on trip
+duration appears stable across both weekdays and weekends.
+
+```{r}
+# Predictions across temperature by weekend status
+newdat <- expand.grid(
+  Weekend = c(0,1),
+  temp_c  = seq(min(bixi$temp_c), max(bixi$temp_c), length.out = 100),
+  Wet = 0, precip = 0,  # dry day for clarity
+  mm = factor(5, levels = sort(unique(bixi$mm))),            # baseline month
+  arrondissement = levels(bixi$arrondissement)[1]            # baseline borough
+)
+newdat$pred <- predict(m_no_int, newdata = newdat, se.fit = TRUE)
+newdat$fit  <- newdat$pred$fit
+newdat$se   <- newdat$pred$se.fit
+newdat$lwr  <- newdat$fit - 1.96*newdat$se
+newdat$upr  <- newdat$fit + 1.96*newdat$se
+
+p_temp <-
+ggplot(newdat, aes(temp_c, fit, color = factor(Weekend), fill = factor(Weekend))) +
+  geom_line() +
+  geom_ribbon(aes(ymin=lwr, ymax=upr), alpha=.15, color = NA) +
+  labs(x = "Centered temperature (°C)", y = "Predicted log duration",
+       color = "Weekend", fill = "Weekend",
+       title = "Temperature effect on trip duration: Weekend vs. Weekday") +
+  theme_minimal()
+
+```
+
+```{r}
+wetdat <- expand.grid(
+  Weekend = c(0,1),
+  Wet = 1,
+  precip = seq(0, quantile(bixi$precip[bixi$precip>0], .95, na.rm=TRUE), length.out=80),
+  temp_c = 0, mm = factor(5, levels = sort(unique(bixi$mm))),
+  arrondissement = levels(bixi$arrondissement)[1]
+)
+wetdat$log1p_prec <- log1p(wetdat$precip)
+wetdat$pred <- predict(m_no_int, newdata = transform(wetdat, `log(1+precip)`=log1p_prec), se.fit=TRUE)
+wetdat$fit  <- wetdat$pred$fit
+wetdat$se   <- wetdat$pred$se.fit
+wetdat$lwr  <- wetdat$fit - 1.96*wetdat$se
+wetdat$upr  <- wetdat$fit + 1.96*wetdat$se
+
+p_rain <-ggplot(wetdat, aes(precip, fit, color=factor(Weekend), fill=factor(Weekend))) +
+  geom_line() +
+  geom_ribbon(aes(ymin=lwr, ymax=upr), alpha=.15, color=NA) +
+  labs(x="Rainfall (mm) on wet days", y="Predicted log duration",
+       color="Weekend", fill="Weekend",
+       title="Rainfall effect on trip duration (wet days): Weekend vs. Weekday") +
+  theme_minimal()
+
+```
+
+```{r}
+grid.arrange(
+  p_temp + theme(legend.position = "bottom"),
+  p_rain + theme(legend.position = "bottom"),
+  ncol = 1,nrow=2
+)
+```
+
+**Overall conclusion.**
+
+Controlling for month and borough fixed effects, the rainfall block is
+significant (α=0.01), while the temperature block is not.
+Added Weekend×Rain and Weekend×Temperature interactions are not
+significant, indicating no differential weather effect by weekend status
+as shown on the figure above.
+
+## Question 3 --- Are there any seasonal effects on trip duration?
+
+We test whether **month indicators** are jointly significant in the
+linear model for $Y=\log(\text{dur})$, controlling for weekend, weather,
+and borough.
+
+**Null and alternative (seasonality block).**\
+Let $\{\delta_6,\delta_7,\delta_8,\delta_9,\delta_{10}\}$ be the
+coefficients for months June--October (May is the reference). We test $$
+H_0:\; \delta_6=\delta_7=\delta_8=\delta_9=\delta_{10}=0
+\quad\text{vs}\quad
+H_A:\; \text{at least one }\delta_j\neq 0,
+$$ at significance level $\alpha=0.01$.
+
+We compare a model **without** month dummies to the **full** model (with
+month dummies) using a nested-model **F-test**.
+
+```{r}
+## Full model used in Q2 (includes month dummies)
+m_full <- lm(
+  logdur ~ Weekend +
+    temp_c + I(temp_c^2) +
+    Wet + log(1 + precip):Wet +
+    mm + arrondissement,
+  data = bixi
+)
+
+## Reduced model without month dummies
+m_no_month <- lm(
+  logdur ~ Weekend +
+    temp_c + I(temp_c^2) +
+    Wet + log(1 + precip):Wet +
+    arrondissement,
+  data = bixi
+)
+
+## Block F-test: are months jointly significant?
+anova(m_no_month, m_full)
+```
+
+The block F-test for month dummies yields $F=4.79$, $p=0.00022$.\
+At $\alpha=0.01$, we reject $H_0$ and conclude that there are
+significant seasonal effects on trip duration.
