@@ -264,6 +264,60 @@ $p=0.0055$.\
 Again, since $p < 0.01$, we reject $H_0$. Weekend trips are about 7.0%
 longer in this model in average.
 
+**Diagnostics: Cheking Model Assumptions**
+#### 1. **Residuals vs Fitted Values (Homoscedasticity)**
+The residuals are fairly centered around zero, and no strong fan-shape pattern appears. There is some spread, but it looks roughly even across fitted values.
+Homoscedasticity assumption seems acceptable. No major concern here.
+
+```{r, message=FALSE, warning=FALSE}
+# Residuals vs Fitted plot to check for homoscedasticity
+plot(m_q1_adj$fitted.values, m_q1_adj$residuals,
+     xlab = "Fitted Values", ylab = "Residuals",
+     main = "Residuals vs Fitted Values")
+abline(h = 0, col = "red", lwd = 2)
+```
+
+#### 2. **Q-Q Plot (Normality of Residuals)**
+The points follow the line fairly well in the middle but deviate at the tails (especially on the far left and right).
+The residuals are approximately normal, but there are some deviations in the tails. This means your p-values and confidence intervals are still reliable in large samples, but some caution is needed with outliers/extreme cases. The log transformation already improved things, so this is acceptable.
+
+```{r, message=FALSE, warning=FALSE}
+# Q-Q plot to check normality of residuals
+qqnorm(m_q1_adj$residuals)
+qqline(m_q1_adj$residuals, col = "red", lwd = 2)
+```
+
+#### 3. **Histogram of Residuals**
+The histogram is roughly bell-shaped, though slightly skewed with a few extreme values.
+Normality is fairly well satisfied, consistent with the Q-Q plot. No major violation.
+
+```{r, message=FALSE, warning=FALSE}
+# Histogram of residuals to check normality
+hist(m_q1_adj$residuals, breaks = 30, main = "Histogram of Residuals",
+     xlab = "Residuals", col = "lightblue", border = "black")
+```
+
+#### 4. **Fitted vs Actual Values**
+The points follow the line reasonably well, though there is scatter. Not perfect, but expected for social/behavioral data like bike trips.
+The model has reasonable predictive performance. It captures the main trend but doesn’t perfectly predict individual durations (which is expected).
+
+```{r, message=FALSE, warning=FALSE}
+# Plot Fitted values vs Actual values
+plot(m_q1_adj$fitted.values, bixi$logdur, 
+     xlab = "Fitted Values", ylab = "Actual Values", 
+     main = "Fitted vs Actual Plot")
+abline(0, 1, col = "red", lwd = 2)
+```
+
+#### 5. **VIF (Multicollinearity)**
+All VIFs are <5, so there is no multicollinearity concern.
+
+```{r, message=FALSE, warning=FALSE}
+# Calculate VIF to check for multicollinearity
+library(car)
+vif(m_q1_adj)
+```
+
 **Conclusion.** Both crude and adjusted models confirm that weekend
 trips are significantly longer at the 1% level. The weekend effect is
 robust to adjustment for climate, seasonality, and borough differences.
