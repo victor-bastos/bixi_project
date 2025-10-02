@@ -79,7 +79,7 @@ p_logdur <- add_center_lines(p_logdur, "logdur", bixi)
 plot_grid(p_dur, p_logdur, nrow = 1, labels = c("A", "B"))
 ```
 
-```{r eda_prec_en, message=FALSE, warning=FALSE, fig.width=10, fig.height=4}
+```{r, message=FALSE, warning=FALSE, fig.width=10, fig.height=4}
 # Ensure variables and build rainy-day intensity
 stopifnot("precip" %in% names(bixi))
 bixi$Wet      <- as.integer(bixi$prec > 0)
@@ -118,7 +118,7 @@ plot_grid(p_prec, p_logprec, nrow = 1, labels = c("C", "D"))
 
 ```
 
-```{r eda_prec_en, message=FALSE, warning=FALSE}
+```{r, message=FALSE, warning=FALSE}
 
 #install.packages("corrplot")
 library(corrplot)
@@ -142,6 +142,7 @@ corrplot(
   col = colorRampPalette(c("#f7fbff", "#6baed6", "#08306b"))(200)
 )
 
+bixi$Weekend <- as.integer(bixi$jj %in% c(6,7))
 # Boxplot of Trip Duration by Weekend vs Weekday
 ggplot(bixi, aes(x = as.factor(Weekend), y = dur)) +
   geom_boxplot() +
@@ -273,10 +274,11 @@ $p=0.0055$.\
 Again, since $p < 0.01$, we reject $H_0$. Weekend trips are about 7.0%
 longer in this model in average.
 
-**Diagnostics: Cheking Model Assumptions**
-#### 1. **Residuals vs Fitted Values (Homoscedasticity)**
-The residuals are fairly centered around zero, and no strong fan-shape pattern appears. There is some spread, but it looks roughly even across fitted values.
-Homoscedasticity assumption seems acceptable. No major concern here.
+**Diagnostics: Cheking Model Assumptions** \#### 1. **Residuals vs
+Fitted Values (Homoscedasticity)** The residuals are fairly centered
+around zero, and no strong fan-shape pattern appears. There is some
+spread, but it looks roughly even across fitted values. Homoscedasticity
+assumption seems acceptable. No major concern here.
 
 ```{r, message=FALSE, warning=FALSE}
 # Residuals vs Fitted plot to check for homoscedasticity
@@ -287,8 +289,13 @@ abline(h = 0, col = "red", lwd = 2)
 ```
 
 #### 2. **Q-Q Plot (Normality of Residuals)**
-The points follow the line fairly well in the middle but deviate at the tails (especially on the far left and right).
-The residuals are approximately normal, but there are some deviations in the tails. This means your p-values and confidence intervals are still reliable in large samples, but some caution is needed with outliers/extreme cases. The log transformation already improved things, so this is acceptable.
+
+The points follow the line fairly well in the middle but deviate at the
+tails (especially on the far left and right). The residuals are
+approximately normal, but there are some deviations in the tails. This
+means your p-values and confidence intervals are still reliable in large
+samples, but some caution is needed with outliers/extreme cases. The log
+transformation already improved things, so this is acceptable.
 
 ```{r, message=FALSE, warning=FALSE}
 # Q-Q plot to check normality of residuals
@@ -297,8 +304,10 @@ qqline(m_q1_adj$residuals, col = "red", lwd = 2)
 ```
 
 #### 3. **Histogram of Residuals**
-The histogram is roughly bell-shaped, though slightly skewed with a few extreme values.
-Normality is fairly well satisfied, consistent with the Q-Q plot. No major violation.
+
+The histogram is roughly bell-shaped, though slightly skewed with a few
+extreme values. Normality is fairly well satisfied, consistent with the
+Q-Q plot. No major violation.
 
 ```{r, message=FALSE, warning=FALSE}
 # Histogram of residuals to check normality
@@ -307,8 +316,11 @@ hist(m_q1_adj$residuals, breaks = 30, main = "Histogram of Residuals",
 ```
 
 #### 4. **Fitted vs Actual Values**
-The points follow the line reasonably well, though there is scatter. Not perfect, but expected for social/behavioral data like bike trips.
-The model has reasonable predictive performance. It captures the main trend but doesn’t perfectly predict individual durations (which is expected).
+
+The points follow the line reasonably well, though there is scatter. Not
+perfect, but expected for social/behavioral data like bike trips. The
+model has reasonable predictive performance. It captures the main trend
+but doesn’t perfectly predict individual durations (which is expected).
 
 ```{r, message=FALSE, warning=FALSE}
 # Plot Fitted values vs Actual values
@@ -316,15 +328,6 @@ plot(m_q1_adj$fitted.values, bixi$logdur,
      xlab = "Fitted Values", ylab = "Actual Values", 
      main = "Fitted vs Actual Plot")
 abline(0, 1, col = "red", lwd = 2)
-```
-
-#### 5. **VIF (Multicollinearity)**
-All VIFs are <5, so there is no multicollinearity concern.
-
-```{r, message=FALSE, warning=FALSE}
-# Calculate VIF to check for multicollinearity
-library(car)
-vif(m_q1_adj)
 ```
 
 **Conclusion.** Both crude and adjusted models confirm that weekend
@@ -499,7 +502,7 @@ interaction terms.)
 m_no_int <- lm(logdur ~ Weekend + temp_c + I(temp_c^2) +
                    Wet + log(1+precip):Wet +
                    factor(mm) + arrondissement, data=bixi)
-summary(m_temp_no_int)
+summary(m_no_int)
 ```
 
 ```{r}
