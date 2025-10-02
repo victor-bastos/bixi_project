@@ -142,6 +142,15 @@ corrplot(
   col = colorRampPalette(c("#f7fbff", "#6baed6", "#08306b"))(200)
 )
 
+# Boxplot of Trip Duration by Weekend vs Weekday
+ggplot(bixi, aes(x = as.factor(Weekend), y = dur)) +
+  geom_boxplot() +
+  labs(
+    title = "Trip Duration by Weekend vs Weekday",
+    x = "Weekend (1 = Weekend, 0 = Weekday)",
+    y = "Trip Duration (minutes)"
+  ) + 
+  theme_clean
 ```
 
 # Business questions
