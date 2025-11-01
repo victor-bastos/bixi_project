@@ -1,0 +1,131 @@
+---
+title: "bixi_project"
+output: pdf_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r, include = false}
+library(tidyverse)
+library(broom)
+library(lme4)
+library(emmeans)
+library(performance)
+```
+
+```{r}
+bixi <- read.csv("bixi6_part2.csv")
+head(bixi)
+print(names(bixi))
+```
+
+```{r}
+# Check for missing values in key columns
+bixi %>%
+  summarise(
+    n_total = n(),
+    missing_n_tot  = sum(is.na(n_tot)),
+    missing_n_rush = sum(is.na(n_rush)),
+    missing_month  = sum(is.na(mm))
+  )
+```
+
+```{r}
+#Visualize proportion of rush-hour trips by month
+bixi |>
+  mutate(p_rush = n_rush / n_tot) |>
+  ggplot(aes(x = factor(mm), y = p_rush)) +
+  geom_boxplot(fill = "blue") +
+  labs(x = "Month", y = "Proportion of rush-hour departures",
+       title = "Distribution of peak-hour proportions across months")
+```
+
+The distribution of daily rush-hour trip proportions is fairly stable
+across months, with median values between roughly 0.35 and 0.45,
+suggesting only small seasonal differences — a pattern that can be
+formally tested using a **binomial logistic regression** on the odds of
+rush-hour departures.
+
+# Business questions
+
+## Q1 --- Does the odds of a rush hour departure vary significantly across the months？
+
+We modeled the daily share of peak-time departures using a **binomial
+generalized linear model (logistic regression)** with month as a
+categorical predictor
+
+**Base model -** tests whether the odds of a trip being in peak hours
+vary across months
+
+$$
+\text{logit}\!\left(p_i\right)
+= \log\!\left(\frac{p_i}{1 - p_i}\right)
+= \beta_0 + \beta_1\text month\,
+$$
+
+```{r}
+# tests month effect
+M0 <- glm(cbind(n_rush, n_tot - n_rush) ~ factor(mm),
+          family = binomial(link = "logit"),
+          data = bixi)
+
+```
+
+**Null Model- without factors effect**
+
+$$
+\text{logit}\!\left(p_i\right)
+= \beta_0 
+$$
+
+```{r}
+#Null model (no month effect)
+M_null <- update(fit_glm, . ~ 1)
+```
+
+```{r}
+#Likelihood Ratio Test (LRT)
+anova_glm <- anova(M_null, M0, test = "LRT")
+anova_glm
+```
+
+$$
+H_0:\ \beta_m=0\ \text{for all non-reference months   }
+H_1:\ \beta_m\neq 0
+$$
+
+Interpretation :
+
+A binomial logistic regression with month as a categorical predictor
+showed a significant month effect (Likelihood Ratio Test: χ²(5) = 129.4,
+p-value =2.2e-16 \< 0.001), meaning that rush-hour departure odds vary
+across months.
+
+**Extended model** - adding factors that might also influence peak-hour
+to see whether the “month effect” still matters after controlling for
+these factors.
+
+$$
+\log\left(\frac{p_i}{1 - p_i}\right)  = \beta_0 + \beta_1 \, \text{weekday}_i  + \beta_2 \, \text{temperature}_i  + \beta_3 \, \text{rain}_i  + \beta_4 \, \text{month}_i
+$$
+
+```{r}
+# Extended model: control for weekday (jj), temperature, and rain indicator
+M_no_month <- glm(cbind(n_rush, n_tot - n_rush) ~ factor(jj) + temp + precip_ind,
+                    family = binomial, data = bixi)
+
+M_with_month <- glm(cbind(n_rush, n_tot - n_rush) ~ factor(mm) + factor(jj) + temp + precip_ind,
+                      family = binomial, data = bixi)
+
+anova(M_no_month, M_with_month, test = "LRT")
+
+```
+
+## interpretation
+
+A binomial logistic regression controlling for weekday, temperature, and
+rainfall showed that adding month significantly improved model fit (LRT:
+χ²(5) = 39.68, p \< 0.001), indicating that monthly variation in
+rush-hour departure odds persists even after accounting for weather and
+weekday effects.
