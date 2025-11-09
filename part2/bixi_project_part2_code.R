@@ -111,7 +111,7 @@ ggplot(res_df, aes(x = fitted, y = pearson_resid)) +
 
 ## ---------------------------------------------------------------------------------------------------
 # Refit with quasi-binomial to correct SEs
-M_with_month <- glm(cbind(n_rush, n_tot - n_rush) ~ factor(mm) + factor(jj) + temp + precip_ind,
+M_with_month_q <- glm(cbind(n_rush, n_tot - n_rush) ~ factor(mm) + factor(jj) + temp + precip_ind,
                       family = quasibinomial, data = bixi)
 
 summary(M_with_month_q)
