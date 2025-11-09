@@ -77,7 +77,44 @@ M_with_month <- glm(cbind(n_rush, n_tot - n_rush) ~ factor(mm) + factor(jj) + te
 
 anova(M_no_month, M_with_month, test = "LRT")
 
+## ---------------------------------------------------------------------------------------------------
+#modelQ1 validation test 
+library(patchwork)  
 
+M <- M_with_month 
+
+res_df <- data.frame(
+  fitted   = fitted(M),
+  r_pear   = residuals(M, type = "pearson"),
+  r_dev    = residuals(M, type = "deviance"),
+  cooks    = cooks.distance(M),
+  leverage = hatvalues(M)
+)
+
+p1 <- ggplot(res_df, aes(fitted, r_pear)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "Pearson residuals vs fitted", x = "Fitted", y = "Pearson resid")
+
+p2 <- ggplot(res_df, aes(fitted, r_dev)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "Deviance residuals vs fitted", x = "Fitted", y = "Deviance resid")
+
+# QQ plot for deviance residuals
+qqdat <- data.frame(sample = sort(res_df$r_dev),
+                    theo   = qqnorm(res_df$r_dev, plot.it = FALSE)$x)
+p3 <- ggplot(qqdat, aes(theo, sample)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  labs(title = "QQ plot (deviance residuals)", x = "Theoretical", y = "Sample")
+
+# Cook's distance / leverage
+p4 <- ggplot(res_df, aes(seq_along(cooks), cooks)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Cook's distance", x = "Observation index", y = "Cook's D")
+
+(p1 | p2) / (p3 | p4)
 
 ## ---------------------------------------------------------------------------------------------------
 # Chechk Binomial fit
