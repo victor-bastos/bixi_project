@@ -6,9 +6,7 @@ library(emmeans)
 library(performance)
 library(dplyr)
 library(ggplot2)
-
-
-
+library(patchwork)
 
 ## ---------------------------------------------------------------------------------------------------
 bixi_data <- read.csv("bixi6_part2.csv")
@@ -36,6 +34,18 @@ bixi_data %>%
     missing_month  = sum(is.na(mm))
   )
 
+## ---------------------------------------------------------------------------------------------------
+#Descriptive statistics
+bixi_data %>%
+  summarise(
+    mean_n_tot = mean(n_tot), sd_n_tot = sd(n_tot), min_n_tot=min(n_tot), max_n_tot=max(n_tot),
+    mean_n_rush = mean(n_rush), sd_n_rush = sd(n_rush), min_n_rush=min(n_rush), max_n_rush=max(n_rush),
+    mean_temp = mean(temp), sd_temp = sd(temp), min_temp=min(temp), max_temp=max(temp)
+  )
+
+mean(bixi_data$prec_ind == "Rain")
+
+table(bixi_data$jj)
 
 ## ---------------------------------------------------------------------------------------------------
 #Visualize proportion of rush-hour trips by month
@@ -46,6 +56,53 @@ bixi_data |>
   labs(x = "Month", y = "Proportion of rush-hour departures",
        title = "Distribution of peak-hour proportions across months")
 
+## ---------------------------------------------------------------------------------------------------
+# Proportion of rush hour trips by day and rain status
+rush_summary <- bixi_data %>%
+  group_by(jj, prec_ind) %>%
+  summarise(
+    total_trips = sum(n_tot),
+    rush_trips = sum(n_rush),
+    prop_rush = rush_trips / total_trips,
+    .groups = 'drop'
+  )
+
+p1 <- ggplot(rush_summary, aes(x = jj, y = prop_rush, fill = prec_ind)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  geom_text(aes(label = paste0(round(prop_rush * 100, 1), "%")), 
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(
+    title = "Proportion of Rush Hour Trips by Day and Rainfall",
+    subtitle = "Clear weekday vs weekend pattern with moderate rain impact",
+    x = "Day of Week", 
+    y = "Proportion of Rush Hour Trips",
+    fill = "Rainfall"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme(legend.position = "bottom")
+
+print(p1)
+
+# Key insights from exploratory analysis
+cat("\nKEY EXPLORATORY INSIGHTS:\n")
+cat("• Weekdays (Mon-Fri) show higher rush hour usage (30-40% of trips)\n")
+cat("• Weekends (Sat-Sun) show significantly lower rush hour usage (15-20% of trips)\n")
+cat("• Rainfall generally reduces rush hour proportions across all days\n")
+cat("• Tuesday shows the highest rush hour usage under normal conditions\n")
+cat("• Sunday shows the lowest rush hour usage\n")
+
+## ---------------------------------------------------------------------------------------------------
+#Distribution of Total Daily Trips
+ggplot(bixi, aes(x = n_tot)) +
+  geom_histogram(bins = 40, fill="steelblue", alpha=0.7) +
+  labs(title="Distribution of Total Daily Trips", x="Total daily departures", y="Count")
+
+## ---------------------------------------------------------------------------------------------------
+#Distribution of Temperature
+ggplot(bixi, aes(x = temp)) +
+  geom_histogram(bins = 40, fill="orange", alpha=0.7) +
+  labs(title="Distribution of Temperature", x="Temperature (°C)", y="Count")
 
 ## ---------------------------------------------------------------------------------------------------
 bixi<-bixi_data
@@ -78,43 +135,94 @@ M_with_month <- glm(cbind(n_rush, n_tot - n_rush) ~ factor(mm) + factor(jj) + te
 anova(M_no_month, M_with_month, test = "LRT")
 
 ## ---------------------------------------------------------------------------------------------------
-#modelQ1 validation test 
-library(patchwork)  
+#modelQ1 validation test   
 
-M <- M_with_month 
+col_point   <- "#6B7280"   # slate gray points
+col_line    <- "#0EA5A0"   # teal accent lines
+col_thresh  <- "#E76F51"   # warm threshold line
+col_smooth  <- "#2563EB"   # cool loess line
+col_grid    <- "#ECEFF4"   # light grid
+col_axis    <- "#374151"   # axis text
 
-res_df <- data.frame(
-  fitted   = fitted(M),
-  r_pear   = residuals(M, type = "pearson"),
-  r_dev    = residuals(M, type = "deviance"),
-  cooks    = cooks.distance(M),
-  leverage = hatvalues(M)
+diag_grid_landscape_col <- function(model, tag = "Q1",
+                                    save = NULL, width = 12, height = 7,
+                                    base_size = 10, title_size = 12, line_w = 0.6) {
+
+  fv  <- fitted(model)
+  rp  <- residuals(model, type = "pearson")
+  rd  <- residuals(model, type = "deviance")
+  cd  <- cooks.distance(model)
+  lev <- hatvalues(model)
+  n   <- length(fv); thr <- 4/n
+
+  df <- data.frame(fitted = fv, pearson = rp, dev = rd,
+                   cook = cd, lev = lev, idx = seq_len(n))
+
+  theme_col <- theme_minimal(base_size = base_size) +
+    theme(
+      plot.title = element_text(face = "bold", size = title_size, margin = margin(b = 2), color = col_axis),
+      axis.title = element_text(color = col_axis),
+      axis.text  = element_text(color = col_axis),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(color = col_grid, linewidth = 0.4),
+      plot.margin = margin(3, 6, 3, 3)
+    )
+
+  p1 <- ggplot(df, aes(fitted, pearson)) +
+    geom_point(alpha = 0.45, size = 1, color = col_point) +
+    geom_hline(yintercept = 0, color = col_line, linewidth = line_w) +
+    labs(title = "Pearson vs fitted", x = "Fitted", y = "Pearson residuals") +
+    theme_col
+
+  p2 <- ggplot(df, aes(fitted, dev)) +
+    geom_point(alpha = 0.45, size = 1, color = col_point) +
+    geom_hline(yintercept = 0, color = col_line, linewidth = line_w) +
+    labs(title = "Deviance vs fitted", x = "Fitted", y = "Deviance residuals") +
+    theme_col
+
+  p3 <- ggplot(df, aes(sample = pearson)) +
+    stat_qq(alpha = 0.55, size = 1, color = col_point) +
+    stat_qq_line(color = col_line, linewidth = line_w) +
+    labs(title = "Q–Q plot (Pearson)", x = "Theoretical quantiles", y = "Sample quantiles") +
+    theme_col
+
+  p4 <- ggplot(df, aes(idx, cook)) +
+    geom_linerange(aes(ymin = 0, ymax = cook), linewidth = line_w, color = col_point) +
+    geom_hline(yintercept = thr, linetype = 2, color = col_thresh, linewidth = line_w) +
+    labs(title = "Cook’s distance", x = "Observation index", y = "Cook’s distance") +
+    theme_col
+
+  p5 <- ggplot(df, aes(lev, pearson)) +
+    geom_point(alpha = 0.45, size = 1, color = col_point) +
+    geom_hline(yintercept = 0, color = col_line, linewidth = line_w) +
+    labs(title = "Leverage vs residuals", x = "Leverage", y = "Pearson residuals") +
+    theme_col
+
+  p6 <- ggplot(df, aes(fitted, pearson)) +
+    geom_point(alpha = 0.45, size = 1, color = col_point) +
+    geom_smooth(se = FALSE, method = "loess", formula = y ~ x,
+                linewidth = line_w, color = col_smooth) +
+    geom_hline(yintercept = 0, color = col_line, linewidth = line_w) +
+    labs(title = "Loess trend", x = "Fitted", y = "Pearson residuals") +
+    theme_col
+
+  grid <- (p1 | p2 | p3) / (p4 | p5 | p6) +
+    plot_annotation(title = tag) &
+    theme(plot.title = element_text(face = "bold", size = title_size + 1, color = col_axis,
+                                    margin = margin(b = 6)))
+
+  if (!is.null(save)) ggsave(save, grid, width = width, height = height, dpi = 300)
+  grid
+}
+
+M_q1 <- glm(
+  cbind(n_rush, n_tot - n_rush) ~ factor(mm) + factor(jj) + temp + precip_ind,
+  family = binomial, data = bixi
 )
+q1_land_col <- diag_grid_landscape_col(M_q1, tag = "Q1 — Diagnostics (6-in-1, colored)",
+                                       save = "Q1_diagnostics_landscape_colored.png")
+q1_land_col
 
-p1 <- ggplot(res_df, aes(fitted, r_pear)) +
-  geom_point(alpha = 0.5) +
-  geom_hline(yintercept = 0, color = "red") +
-  labs(title = "Pearson residuals vs fitted", x = "Fitted", y = "Pearson resid")
-
-p2 <- ggplot(res_df, aes(fitted, r_dev)) +
-  geom_point(alpha = 0.5) +
-  geom_hline(yintercept = 0, color = "red") +
-  labs(title = "Deviance residuals vs fitted", x = "Fitted", y = "Deviance resid")
-
-# QQ plot for deviance residuals
-qqdat <- data.frame(sample = sort(res_df$r_dev),
-                    theo   = qqnorm(res_df$r_dev, plot.it = FALSE)$x)
-p3 <- ggplot(qqdat, aes(theo, sample)) +
-  geom_point(alpha = 0.6) +
-  geom_abline(intercept = 0, slope = 1, color = "red") +
-  labs(title = "QQ plot (deviance residuals)", x = "Theoretical", y = "Sample")
-
-# Cook's distance / leverage
-p4 <- ggplot(res_df, aes(seq_along(cooks), cooks)) +
-  geom_point(alpha = 0.6) +
-  labs(title = "Cook's distance", x = "Observation index", y = "Cook's D")
-
-(p1 | p2) / (p3 | p4)
 
 ## ---------------------------------------------------------------------------------------------------
 # Chechk Binomial fit
@@ -124,25 +232,6 @@ phi_pearson  <- sum(residuals(M, type = "pearson")^2)  / df.residual(M)
 phi_deviance <- sum(residuals(M, type = "deviance")^2) / df.residual(M)
 
 c(phi_pearson = phi_pearson, phi_deviance = phi_deviance)
-
-
-
-## ---------------------------------------------------------------------------------------------------
-# residuals and fitted values
-res_df <- data.frame(
-  fitted = fitted(M_with_month),
-  pearson_resid = residuals(M_with_month, type = "pearson")
-)
-
-# Plot Pearson residuals vs fitted values
-library(ggplot2)
-ggplot(res_df, aes(x = fitted, y = pearson_resid)) +
-  geom_point(alpha = 0.5) +
-  geom_hline(yintercept = 0, color = "red") +
-  labs(title = "Pearson Residuals vs Fitted Values",
-       x = "Fitted values", y = "Pearson residuals") +
-  theme_minimal()
-
 
 
 
@@ -168,45 +257,6 @@ compare <- cbind(
   SE_ratio      = out.quasi[,2] / out.bin[,2]
 )
 compare
-
-
-
-## ---------------------------------------------------------------------------------------------------
-# Proportion of rush hour trips by day and rain status
-rush_summary <- bixi_data %>%
-  group_by(jj, prec_ind) %>%
-  summarise(
-    total_trips = sum(n_tot),
-    rush_trips = sum(n_rush),
-    prop_rush = rush_trips / total_trips,
-    .groups = 'drop'
-  )
-
-# Create visualization
-p1 <- ggplot(rush_summary, aes(x = jj, y = prop_rush, fill = prec_ind)) +
-  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
-  geom_text(aes(label = paste0(round(prop_rush * 100, 1), "%")), 
-            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
-  labs(
-    title = "Proportion of Rush Hour Trips by Day and Rainfall",
-    subtitle = "Clear weekday vs weekend pattern with moderate rain impact",
-    x = "Day of Week", 
-    y = "Proportion of Rush Hour Trips",
-    fill = "Rainfall"
-  ) +
-  theme_minimal() +
-  scale_y_continuous(labels = scales::percent_format()) +
-  theme(legend.position = "bottom")
-
-print(p1)
-
-# Key insights from exploratory analysis
-cat("\nKEY EXPLORATORY INSIGHTS:\n")
-cat("• Weekdays (Mon-Fri) show higher rush hour usage (30-40% of trips)\n")
-cat("• Weekends (Sat-Sun) show significantly lower rush hour usage (15-20% of trips)\n")
-cat("• Rainfall generally reduces rush hour proportions across all days\n")
-cat("• Tuesday shows the highest rush hour usage under normal conditions\n")
-cat("• Sunday shows the lowest rush hour usage\n")
 
 
 ## ---------------------------------------------------------------------------------------------------
@@ -378,43 +428,13 @@ if(dispersion_ratio > 1.5) {
 }
 
 # Diagnostic Plots
-cat("\nGENERATING DIAGNOSTIC PLOTS...\n")
-
-# Set up plotting area
-par(mfrow = c(2, 2), mar = c(4, 4, 2, 2))
-
-# 1. Residuals vs Fitted
-fitted_values <- fitted(model_rush)
-pearson_residuals <- residuals(model_rush, type = "pearson")
-
-plot(fitted_values, pearson_residuals,
-     main = "Residuals vs Fitted",
-     xlab = "Fitted Values", ylab = "Pearson Residuals",
-     pch = 20, col = rgb(0.2, 0.2, 0.8, 0.6))
-abline(h = 0, col = "red", lty = 2)
-lines(lowess(fitted_values, pearson_residuals), col = "blue", lwd = 2)
-
-# 2. Q-Q Plot of Residuals
-qqnorm(pearson_residuals, main = "Q-Q Plot of Residuals",
-       pch = 20, col = rgb(0.2, 0.2, 0.8, 0.6))
-qqline(pearson_residuals, col = "red", lwd = 2)
-
-# 3. Cook's Distance for Influential Points
-cooks_d <- cooks.distance(model_rush)
-plot(cooks_d, type = "h",
-     main = "Cook's Distance",
-     ylab = "Cook's Distance", xlab = "Observation Index")
-abline(h = 4/length(cooks_d), col = "red", lty = 2)  # Common threshold
-text(x = which.max(cooks_d), y = max(cooks_d),
-     labels = "Most influential", pos = 3, cex = 0.8)
-
-# 4. Leverage vs Residuals
-leverage <- hatvalues(model_rush)
-plot(leverage, pearson_residuals,
-     main = "Leverage vs Residuals",
-     xlab = "Leverage", ylab = "Pearson Residuals",
-     pch = 20, col = rgb(0.2, 0.2, 0.8, 0.6))
-abline(h = 0, col = "red", lty = 2)
+M_q2 <- glm(
+  cbind(n_rush, n_non_rush) ~ jj * prec_ind,
+  family = binomial, data = bixi
+)
+q2_land_col <- diag_grid_landscape_col(M_q2, tag = "Q2 — Diagnostics (6-in-1, colored)",
+                                       save = "Q2_diagnostics_landscape_colored.png")
+q2_land_col
 
 # Reset plotting parameters
 par(mfrow = c(1, 1))
